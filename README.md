@@ -1,15 +1,17 @@
 # Spring Cloud API Gateway
 
-This project serves as the **API Gateway** for a microservices architecture. It is built using **Spring Boot 3.4.1** and **Spring Cloud Gateway**.
+This project serves as the **API Gateway** (The Shield) for a microservices architecture. It is built using **Spring Boot 3.4.1** and **Spring Cloud Gateway**.
 
 ## Architecture Overview
 
-The API Gateway acts as the single entry point for all client requests. Its main responsibilities are:
-1. **Routing**: Forwarding requests to the appropriate microservice.
-2. **Authentication**: Verifying the presence of security tokens before allowing requests to reach business services.
+The API Gateway acts as the single entry point and security layer for all client requests. 
 
 ### Logic Flow
-`Client Request` -> `API Gateway` -> `Auth Service (Validation)` -> `Business API Services`
+1. **Client Request** hits Gateway (`:8080`).
+2. **Route Validation**: Gateway checks if the path is Public or Private.
+3. **Authentication (Private only)**: Gateway calls **Auth Service** (`:8081/auth/validate`) to verify the JWT.
+4. **Passport Injection**: Gateway injects a secret `X-Gateway-Secret` into the request header.
+5. **Routing**: Request is forwarded to the target **Business Service** (`:8082+`).
 
 ---
 
@@ -21,33 +23,32 @@ The gateway is configured in `src/main/resources/application.yaml`.
 1. **Auth Service (`/auth/**`)**:
    - Port: `8081`
    - Purpose: Handles login, registration, and token generation.
-   - Security: Public access.
-
-2. **Business Services (`/api/v1/**`)**:
+2. **User/Business Services (`/api/v1/**`)**:
    - Port: `8082`
-   - Purpose: Main application logic.
+   - Purpose: Main application logic and user management.
    - Security: Protected by `AuthenticationFilter`.
 
 ---
 
-## Security Implementation
+## Security Hardening (Production Ready)
 
-### Authentication Filter
-A custom `AuthenticationFilter` is implemented in `com.kheavmady.gateway.filter.AuthenticationFilter`.
+### 1. Route Validator
+Defined in `com.kheavmady.gateway.config.RouteValidator`.
+- **Public Endpoints** (No Token Required):
+    - `/api/v1/user/register`
+    - `/api/v1/user/login`
+    - `/auth/validate`
+- **Private Endpoints**: All other paths require a valid Bearer Token.
 
-**Current Implementation:**
-- Extracts the `Authorization` header.
-- Checks for a `Bearer ` prefix.
-- Rejects requests with `401 Unauthorized` if the header is missing or invalid.
+### 2. JWT Introspection
+The `AuthenticationFilter` does not just check for a header; it performs a reactive call to the Auth Service to ensure the token is valid and not expired.
 
-**Future Integration:**
-In the filter's logic, you can integrate a `WebClient` call to your dedicated Auth Service to validate JWT tokens.
+### 3. Gateway Passport (Internal Security)
+Every request forwarded by the Gateway is injected with a "Passport":
+- **Header**: `X-Gateway-Secret`
+- **Value**: `PROD_GATEWAY_SECRET_KEY_12345` (Configured in `application.yaml`)
 
-```java
-// Example future logic in AuthenticationFilter:
-// boolean isValid = authClient.validate(token);
-// if (!isValid) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
-```
+**Note:** Internal services should check for this header to ensure the request originated from the Gateway and not an external source trying to bypass the shield.
 
 ---
 
@@ -55,6 +56,7 @@ In the filter's logic, you can integrate a `WebClient` call to your dedicated Au
 - **Java 21**
 - **Spring Boot 3.4.1**
 - **Spring Cloud Gateway 2024.0.0**
+- **Spring WebFlux (WebClient)**
 - **Gradle**
 
 ## Getting Started
@@ -69,6 +71,6 @@ In the filter's logic, you can integrate a `WebClient` call to your dedicated Au
 ```
 The gateway will start on port `8080` by default.
 
-### Testing Routes
-- **Auth**: `GET http://localhost:8080/auth/login` (Routes to `localhost:8081/auth/login`)
-- **API**: `GET http://localhost:8080/api/v1/resource` (Requires `Authorization: Bearer <token>` header)
+### Testing Protected Routes
+- **Fail (No Token)**: `curl -I http://localhost:8080/api/v1/user/profile` -> `401 Unauthorized`
+- **Pass (With Token)**: Use the provided Postman Collection with a `Bearer <token>`.
