@@ -74,3 +74,73 @@ The gateway will start on port `8080` by default.
 ### Testing Protected Routes
 - **Fail (No Token)**: `curl -I http://localhost:8080/api/v1/user/profile` -> `401 Unauthorized`
 - **Pass (With Token)**: Use the provided Postman Collection with a `Bearer <token>`.
+
+---
+
+## Deployment (Production Ready - Raspberry Pi 4B)
+
+This section describes how to deploy the Gateway to a **Raspberry Pi 4B** running **Ubuntu Server 24.04** using **Docker Compose**. To save time and space on the Pi, we build the JAR locally on your development machine and transfer only the required files.
+
+### 1. Prerequisites (On Raspberry Pi)
+Ensure Docker and Docker Compose are installed. If `curl` is missing, install it first:
+```bash
+# Update and install curl
+sudo apt update && sudo apt install curl -y
+
+# Install Docker (Includes Compose Plugin)
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+
+# Verify installation (This should now work)
+docker compose version
+
+# Add your user to the docker group (Re-log after this)
+sudo usermod -aG docker $USER
+
+# Fix permissions if needed
+sudo chown -R $USER:$USER ~/apps
+```
+
+### 2. Build the JAR Locally
+On your **Development Machine** (PC/Mac), navigate to the `gateway/` directory and run:
+```bash
+./gradlew bootJar
+```
+This will create an executable JAR in `build/libs/gateway-0.0.1-SNAPSHOT.jar`.
+
+### 3. Transfer Files to the Pi
+Replace `<PI_IP>` with your Pi's actual IP address (e.g., `192.168.0.179`) and `<USER>` with your username (e.g., `kheavmady`). Run these from your **Development Machine**:
+```bash
+# Create the deployment directory on the Pi
+ssh kheavmady@192.168.0.179 "mkdir -p ~/apps/lawstudent/gateway/"
+
+# Transfer the JAR file
+scp build/libs/*.jar kheavmady@192.168.0.179:~/apps/lawstudent/gateway/
+
+# Transfer the Docker configuration files
+scp Dockerfile kheavmady@192.168.0.179:~/apps/lawstudent/gateway/
+scp docker-compose.yml kheavmady@192.168.0.179:~/apps/lawstudent/gateway/
+```
+
+### 4. Configure and Start on the Pi
+SSH into your Raspberry Pi and start the service:
+```bash
+ssh kheavmady@192.168.0.179
+cd ~/apps/lawstudent/gateway/
+
+# Important: Update the environment variables in docker-compose.yml 
+# with the correct physical IPs of your Auth and User services.
+nano docker-compose.yml
+
+# Start the Gateway container
+docker compose up -d --build
+```
+
+### 5. Monitoring
+To view the logs or check the container status:
+```bash
+docker ps
+docker logs -f gateway
+```
+
+**Note:** Since this is a production-ready setup, the Gateway communicates with other services via their **Physical IP addresses**. Ensure the `AUTH_SERVICE_URL` and `USER_SERVICE_URL` in `docker-compose.yml` match your actual Pi cluster configuration.
