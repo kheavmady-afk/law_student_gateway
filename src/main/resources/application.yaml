@@ -29,3 +29,4 @@ logging:
   level:
     com.kheavmady.gateway: DEBUG
     org.springframework.cloud.gateway: INFO
+    reactor.netty.http.server.HttpServerOperations: ERROR
