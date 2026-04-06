@@ -17,14 +17,15 @@ spring:
           predicates:
             - Path=/api/v1/**
           filters:
-            - AuthenticationFilter
+            - name: AuthFilter
 
 # PRODUCTION SECRETS
 internal:
   gateway-secret: ${INTERNAL_GATEWAY_SECRET:PROD_GATEWAY_SECRET_KEY_12345}
-  auth-service-url: ${AUTH_SERVICE_URL:http://192.168.0.179:8081/auth}
+  # Changed variable name to AUTH_VALIDATION_URL to avoid collision
+  auth-service-url: ${AUTH_VALIDATION_URL:http://192.168.0.179:8081/auth}
 
 logging:
   level:
-    org.springframework.cloud.gateway: TRACE
-    org.springframework.http.server.reactive: DEBUG
+    com.kheavmady.gateway: DEBUG
+    org.springframework.cloud.gateway: INFO

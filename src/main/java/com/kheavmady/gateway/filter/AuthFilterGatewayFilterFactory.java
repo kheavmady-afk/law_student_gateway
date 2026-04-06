@@ -16,9 +16,9 @@ import reactor.core.publisher.Mono;
 import java.util.Map;
 
 @Component
-public class AuthenticationFilter extends AbstractGatewayFilterFactory<AuthenticationFilter.Config> {
+public class AuthFilterGatewayFilterFactory extends AbstractGatewayFilterFactory<AuthFilterGatewayFilterFactory.Config> {
 
-    private static final Logger logger = LoggerFactory.getLogger(AuthenticationFilter.class);
+    private static final Logger logger = LoggerFactory.getLogger(AuthFilterGatewayFilterFactory.class);
     private final RouteValidator validator;
     private final WebClient.Builder webClientBuilder;
 
@@ -28,7 +28,7 @@ public class AuthenticationFilter extends AbstractGatewayFilterFactory<Authentic
     @Value("${internal.auth-service-url}")
     private String authServiceUrl;
 
-    public AuthenticationFilter(RouteValidator validator, WebClient.Builder webClientBuilder) {
+    public AuthFilterGatewayFilterFactory(RouteValidator validator, WebClient.Builder webClientBuilder) {
         super(Config.class);
         this.validator = validator;
         this.webClientBuilder = webClientBuilder;
@@ -38,58 +38,61 @@ public class AuthenticationFilter extends AbstractGatewayFilterFactory<Authentic
     public GatewayFilter apply(Config config) {
         return (exchange, chain) -> {
             var request = exchange.getRequest();
-            logger.info("Incoming request: {} {}", request.getMethod(), request.getURI().getPath());
+            String path = request.getURI().getPath();
 
-            // 1. STRIP incoming internal headers and inject the gateway secret
-            var mutatedRequest = request.mutate()
-                    .header("X-Gateway-Secret", gatewaySecret)
-                    .build();
+            // Log entry
+            logger.info("[AuthFilter] Processing request: {} {}", request.getMethod(), path);
 
             if (validator.isSecured.test(request)) {
                 if (!request.getHeaders().containsKey(HttpHeaders.AUTHORIZATION)) {
-                    logger.warn("Missing Authorization header for secured route: {}", request.getURI().getPath());
+                    logger.error("[AuthFilter] Rejecting: Missing Authorization header for {}", path);
                     return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing auth header"));
                 }
 
                 String authHeader = request.getHeaders().get(HttpHeaders.AUTHORIZATION).get(0);
-                if (!authHeader.startsWith("Bearer ")) {
-                    logger.warn("Invalid Authorization header format");
-                    return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid auth header"));
+
+                // SAFETY CHECK: Ensure header is long enough and starts with Bearer
+                if (authHeader == null || !authHeader.startsWith("Bearer ") || authHeader.length() < 8) {
+                    logger.error("[AuthFilter] Rejecting: Invalid Authorization format for {}", path);
+                    return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid Bearer token"));
                 }
-                
+
                 String token = authHeader.substring(7);
                 String validationUrl = authServiceUrl + "/validate?token=" + token;
-                
-                logger.info("Validating token with Auth Service at: {}", validationUrl);
+
+                logger.info("[AuthFilter] Calling Auth Service: {}", validationUrl);
 
                 return webClientBuilder.build()
                         .get()
                         .uri(validationUrl)
                         .header("X-Gateway-Secret", gatewaySecret)
                         .retrieve()
-                        .onStatus(status -> status.isError(), clientResponse -> {
-                            return clientResponse.bodyToMono(Map.class)
-                                    .flatMap(errorBody -> {
-                                        logger.error("Auth Service returned error: {}", errorBody);
-                                        return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Token validation failed"));
-                                    });
-                        })
                         .bodyToMono(Map.class)
                         .flatMap(response -> {
-                            if (response != null && (Boolean) response.get("valid")) {
-                                logger.info("Token validated successfully for {}", request.getURI().getPath());
+                            if (response != null && Boolean.TRUE.equals(response.get("valid"))) {
+                                logger.info("[AuthFilter] SUCCESS: Token valid for {}", path);
+
+                                // Inject secret and continue
+                                var mutatedRequest = request.mutate()
+                                        .header("X-Gateway-Secret", gatewaySecret)
+                                        .build();
                                 return chain.filter(exchange.mutate().request(mutatedRequest).build());
                             } else {
-                                logger.warn("Auth Service returned invalid token response");
-                                return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token"));
+                                logger.error("[AuthFilter] FAILURE: Auth Service rejected token for {}", path);
+                                return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Token invalid"));
                             }
                         })
                         .onErrorResume(e -> {
-                            logger.error("Error during authentication: {}", e.getMessage());
+                            logger.error("[AuthFilter] ERROR: Authentication process failed: {}", e.getMessage());
                             if (e instanceof ResponseStatusException) return Mono.error(e);
-                            return Mono.error(new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Auth Service unreachable: " + e.getMessage()));
+                            return Mono.error(new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Authentication Service Error"));
                         });
             }
+
+            // Public endpoint: Just inject secret and pass through
+            var mutatedRequest = request.mutate()
+                    .header("X-Gateway-Secret", gatewaySecret)
+                    .build();
             return chain.filter(exchange.mutate().request(mutatedRequest).build());
         };
     }
