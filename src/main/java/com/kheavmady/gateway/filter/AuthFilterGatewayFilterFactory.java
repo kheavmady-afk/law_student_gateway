@@ -1,6 +1,10 @@
 package com.kheavmady.gateway.filter;
 
 import com.kheavmady.gateway.config.RouteValidator;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.io.Decoders;
+import io.jsonwebtoken.security.Keys;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -9,29 +13,26 @@ import org.springframework.cloud.gateway.filter.factory.AbstractGatewayFilterFac
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
-import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
-import java.util.Map;
+import javax.crypto.SecretKey;
 
 @Component
 public class AuthFilterGatewayFilterFactory extends AbstractGatewayFilterFactory<AuthFilterGatewayFilterFactory.Config> {
 
     private static final Logger logger = LoggerFactory.getLogger(AuthFilterGatewayFilterFactory.class);
     private final RouteValidator validator;
-    private final WebClient.Builder webClientBuilder;
 
     @Value("${internal.gateway-secret}")
     private String gatewaySecret;
 
-    @Value("${internal.auth-service-url}")
-    private String authServiceUrl;
+    @Value("${jwt.secret}")
+    private String jwtSecret;
 
-    public AuthFilterGatewayFilterFactory(RouteValidator validator, WebClient.Builder webClientBuilder) {
+    public AuthFilterGatewayFilterFactory(RouteValidator validator) {
         super(Config.class);
         this.validator = validator;
-        this.webClientBuilder = webClientBuilder;
     }
 
     @Override
@@ -40,7 +41,6 @@ public class AuthFilterGatewayFilterFactory extends AbstractGatewayFilterFactory
             var request = exchange.getRequest();
             String path = request.getURI().getPath();
 
-            // Log entry
             logger.info("[AuthFilter] Processing request: {} {}", request.getMethod(), path);
 
             if (validator.isSecured.test(request)) {
@@ -51,50 +51,40 @@ public class AuthFilterGatewayFilterFactory extends AbstractGatewayFilterFactory
 
                 String authHeader = request.getHeaders().get(HttpHeaders.AUTHORIZATION).get(0);
 
-                // SAFETY CHECK: Ensure header is long enough and starts with Bearer
                 if (authHeader == null || !authHeader.startsWith("Bearer ") || authHeader.length() < 8) {
                     logger.error("[AuthFilter] Rejecting: Invalid Authorization format for {}", path);
                     return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid Bearer token"));
                 }
 
                 String token = authHeader.substring(7);
-                String validationUrl = authServiceUrl + "/validate?token=" + token;
 
-                logger.info("[AuthFilter] Calling Auth Service: {}", validationUrl);
+                try {
+                    // Local Validation
+                    Claims claims = Jwts.parser()
+                            .verifyWith(getSignKey())
+                            .build()
+                            .parseSignedClaims(token)
+                            .getPayload();
+                    
+                    logger.info("[AuthFilter] SUCCESS: Token valid for user: {}", claims.getSubject());
 
-                return webClientBuilder.build()
-                        .get()
-                        .uri(validationUrl)
-                        .header("X-Gateway-Secret", gatewaySecret)
-                        .retrieve()
-                        .bodyToMono(Map.class)
-                        .flatMap(response -> {
-                            if (response != null && Boolean.TRUE.equals(response.get("valid"))) {
-                                logger.info("[AuthFilter] SUCCESS: Token valid for {}", path);
-
-                                // Inject secret and continue
-                                var mutatedRequest = request.mutate()
-                                        .header("X-Gateway-Secret", gatewaySecret)
-                                        .build();
-                                return chain.filter(exchange.mutate().request(mutatedRequest).build());
-                            } else {
-                                logger.error("[AuthFilter] FAILURE: Auth Service rejected token for {}", path);
-                                return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Token invalid"));
-                            }
-                        })
-                        .onErrorResume(e -> {
-                            logger.error("[AuthFilter] ERROR: Authentication process failed: {}", e.getMessage());
-                            if (e instanceof ResponseStatusException) return Mono.error(e);
-                            return Mono.error(new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Authentication Service Error"));
-                        });
+                } catch (Exception e) {
+                    logger.error("[AuthFilter] FAILURE: Token validation failed: {}", e.getMessage());
+                    return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Token invalid or expired"));
+                }
             }
 
-            // Public endpoint: Just inject secret and pass through
+            // Inject secret and continue (Zero-Trust)
             var mutatedRequest = request.mutate()
                     .header("X-Gateway-Secret", gatewaySecret)
                     .build();
             return chain.filter(exchange.mutate().request(mutatedRequest).build());
         };
+    }
+
+    private SecretKey getSignKey() {
+        byte[] keyBytes = Decoders.BASE64.decode(jwtSecret);
+        return Keys.hmacShaKeyFor(keyBytes);
     }
 
     public static class Config {}
