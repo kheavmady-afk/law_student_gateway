@@ -144,3 +144,24 @@ docker logs -f gateway
 ```
 
 **Note:** Since this is a production-ready setup, the Gateway communicates with other services via their **Physical IP addresses**. Ensure the `AUTH_SERVICE_URL` and `USER_SERVICE_URL` in `docker-compose.yml` match your actual Pi cluster configuration.
+
+---
+
+## 🔍 Troubleshooting & Microservices Debugging (The "Mady" Protocol)
+
+If you encounter **500 Internal Server Error** or **401 Unauthorized** when accessing services through the Gateway, follow this debugging order:
+
+### 1. Check Gateway Filter Logs (Pi 179)
+The Gateway is the "brain" of the network. If it can't authenticate, everything fails.
+```bash
+docker logs gateway --tail 100 | grep "AuthFilter"
+```
+*   **Success:** `[AuthFilter] Processing request: GET /api/v1/user/profile` followed by a successful call to the Auth Service.
+*   **The 404 URL Trap:** Look for `404 Not Found from GET http://192.168.0.179:8081/validate`. This means your `AUTH_VALIDATION_URL` is missing the `/auth` prefix. Correct URL: `http://192.168.0.179:8081/auth/validate`.
+*   **The Filter Name Trap:** If you see NO logs starting with `[AuthFilter]`, the Gateway isn't triggering the filter. Check `application.yaml` to ensure the filter is named `- name: AuthFilter`.
+
+### 2. Painful Lessons Learned (Zero-Trust Security)
+*   **Variable Collision:** Never name your internal validation URL `AUTH_SERVICE_URL` if that variable is already used to define the Gateway route. Use a unique name like `AUTH_VALIDATION_URL`.
+*   **Localhost is a Trap:** Inside a Docker container, `localhost` refers to the container itself, NOT the Raspberry Pi. Always use the Pi's physical IP (`192.168.0.179`) for inter-service communication.
+*   **JWT Secret Sync:** The `JWT_SECRET` must be exactly the same across all services. A single character mismatch will cause a 401 error.
+
