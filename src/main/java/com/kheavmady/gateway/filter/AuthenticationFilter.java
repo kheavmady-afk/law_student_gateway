@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.server.ResponseStatusException;
 
+import reactor.core.publisher.Mono;
 import java.util.Map;
 
 @Component
@@ -35,14 +36,19 @@ public class AuthenticationFilter extends AbstractGatewayFilterFactory<Authentic
         return (exchange, chain) -> {
             var request = exchange.getRequest();
 
-            // Inject secret for internal communication
+            // 1. STRIP incoming internal headers to prevent spoofing
+            var headers = new HttpHeaders();
+            headers.putAll(request.getHeaders());
+            headers.remove("X-Gateway-Secret");
+
+            // 2. INJECT the secret for internal communication
             var mutatedRequest = request.mutate()
                     .header("X-Gateway-Secret", gatewaySecret)
                     .build();
 
             if (validator.isSecured.test(request)) {
                 if (!request.getHeaders().containsKey(HttpHeaders.AUTHORIZATION)) {
-                    throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing auth header");
+                    return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing auth header"));
                 }
 
                 String authHeader = request.getHeaders().get(HttpHeaders.AUTHORIZATION).get(0);
@@ -51,15 +57,25 @@ public class AuthenticationFilter extends AbstractGatewayFilterFactory<Authentic
                 return webClientBuilder.build()
                         .get()
                         .uri(authServiceUrl + "/validate?token=" + token)
-                        .header("X-Gateway-Secret", gatewaySecret) // Prove identity to Auth Service
+                        .header("X-Gateway-Secret", gatewaySecret)
                         .retrieve()
+                        .onStatus(status -> status.isError(), clientResponse -> {
+                            return clientResponse.bodyToMono(Map.class)
+                                    .flatMap(errorBody -> {
+                                        return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Token validation failed"));
+                                    });
+                        })
                         .bodyToMono(Map.class)
                         .flatMap(response -> {
                             if (response != null && (Boolean) response.get("valid")) {
                                 return chain.filter(exchange.mutate().request(mutatedRequest).build());
                             } else {
-                                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token");
+                                return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token"));
                             }
+                        })
+                        .onErrorResume(e -> {
+                            if (e instanceof ResponseStatusException) return Mono.error(e);
+                            return Mono.error(new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Auth Service unreachable"));
                         });
             }
             return chain.filter(exchange.mutate().request(mutatedRequest).build());
