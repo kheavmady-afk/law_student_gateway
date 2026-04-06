@@ -21,6 +21,9 @@ public class AuthenticationFilter extends AbstractGatewayFilterFactory<Authentic
     @Value("${internal.gateway-secret}")
     private String gatewaySecret;
 
+    @Value("${internal.auth-service-url}")
+    private String authServiceUrl;
+
     public AuthenticationFilter(RouteValidator validator, WebClient.Builder webClientBuilder) {
         super(Config.class);
         this.validator = validator;
@@ -47,7 +50,7 @@ public class AuthenticationFilter extends AbstractGatewayFilterFactory<Authentic
 
                 return webClientBuilder.build()
                         .get()
-                        .uri("http://localhost:8081/auth/validate?token=" + token)
+                        .uri(authServiceUrl + "/validate?token=" + token)
                         .header("X-Gateway-Secret", gatewaySecret) // Prove identity to Auth Service
                         .retrieve()
                         .bodyToMono(Map.class)

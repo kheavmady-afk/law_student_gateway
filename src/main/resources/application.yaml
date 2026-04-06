@@ -22,6 +22,7 @@ spring:
 # PRODUCTION SECRETS
 internal:
   gateway-secret: ${INTERNAL_GATEWAY_SECRET:PROD_GATEWAY_SECRET_KEY_12345}
+  auth-service-url: ${AUTH_SERVICE_URL:http://192.168.0.179:8081/auth}
 
 logging:
   level:
