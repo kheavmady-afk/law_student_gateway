@@ -32,7 +32,16 @@ The gateway is configured in `src/main/resources/application.yaml`.
 
 ## Security Hardening (Production Ready)
 
-### 1. Route Validator
+### 1. API Rate Limiting (Anti-DoS)
+The Gateway now includes **Reactive Redis-based Rate Limiting**. This prevents "Brute-Force" and "Resource Exhaustion" attacks (e.g., a bot trying to register 1,000 users per second).
+- **Strategy**: Token Bucket Algorithm.
+- **Key Resolver**: Client IP Address.
+- **Limits**: 
+    - `user-service`: 10 requests/sec (Burst: 20).
+    - `doc-hub-system`: 5 requests/sec (Burst: 10).
+- **Response**: Returns `429 Too Many Requests` when limits are exceeded.
+
+### 2. Route Validator
 Defined in `com.kheavmady.gateway.config.RouteValidator`.
 - **Public Endpoints** (No Token Required):
     - `/api/v1/user/register`
@@ -40,10 +49,20 @@ Defined in `com.kheavmady.gateway.config.RouteValidator`.
     - `/auth/validate`
 - **Private Endpoints**: All other paths require a valid Bearer Token.
 
-### 2. JWT Introspection
+### 3. JWT Introspection
 The `AuthenticationFilter` does not just check for a header; it performs a reactive call to the Auth Service to ensure the token is valid and not expired.
 
-### 3. Gateway Passport (Internal Security)
+### 4. Database Constraints & Validation (Service Layer)
+While the Gateway blocks traffic spikes, the **User Service** enforces:
+- **Unique Constraints**: `email` and `username` are unique at the DB level.
+- **Input Validation**: Rejects malformed registration data before it hits the DB.
+
+### 5. Email Verification (Lifecycle Security)
+New accounts are created with a `PENDING` status.
+- **Verification**: Users must click a link sent to their email to activate the account.
+- **Cleanup**: A background task automatically deletes unverified accounts after 24 hours to prevent DB bloating.
+
+### 6. Gateway Passport (Internal Security)
 Every request forwarded by the Gateway is injected with a "Passport":
 - **Header**: `X-Gateway-Secret`
 - **Value**: `PROD_GATEWAY_SECRET_KEY_12345` (Configured in `application.yaml`)
@@ -56,6 +75,7 @@ Every request forwarded by the Gateway is injected with a "Passport":
 - **Java 21**
 - **Spring Boot 3.4.1**
 - **Spring Cloud Gateway 2024.0.0**
+- **Spring Data Redis (Reactive)**
 - **Spring WebFlux (WebClient)**
 - **Gradle**
 

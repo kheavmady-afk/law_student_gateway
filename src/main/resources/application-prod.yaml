@@ -6,18 +6,18 @@ spring:
     name: gateway
   data:
     redis:
-      host: ${REDIS_HOST:192.168.0.179}
-      port: 6379
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
   cloud:
     gateway:
       routes:
         - id: auth-service
-          uri: ${AUTH_SERVICE_URL:http://192.168.0.179:8081}
+          uri: ${AUTH_SERVICE_URL}
           predicates:
             - Path=/auth/**
 
         - id: user-service
-          uri: ${USER_SERVICE_URL:http://192.168.0.20:8082}
+          uri: ${USER_SERVICE_URL}
           predicates:
             - Path=/api/v1/**
           filters:
@@ -29,28 +29,27 @@ spring:
                 key-resolver: "#{@userKeyResolver}"
 
         - id: doc-hub-system
-          uri: ${DOC_HUB_GATEWAY_URL:http://localhost:8080}
+          uri: ${DOC_HUB_GATEWAY_URL}
           predicates:
             - Path=/api/docs/**, /api/search/**, /api/download/**, /api/share/**, /api/feed/**
           filters:
             - name: AuthFilter
             - name: RequestRateLimiter
               args:
-                redis-rate-limiter.replenishRate: 5
-                redis-rate-limiter.burstCapacity: 10
+                redis-rate-limiter.replenishRate: 10
+                redis-rate-limiter.burstCapacity: 20
                 key-resolver: "#{@userKeyResolver}"
 
 # PRODUCTION SECRETS
 internal:
-  gateway-secret: ${INTERNAL_GATEWAY_SECRET:PROD_GATEWAY_SECRET_KEY_12345}
-  # Changed variable name to AUTH_VALIDATION_URL to avoid collision
-  auth-service-url: ${AUTH_VALIDATION_URL:http://192.168.0.179:8081/auth}
+  gateway-secret: ${INTERNAL_GATEWAY_SECRET}
+  auth-service-url: ${AUTH_VALIDATION_URL}
 
 jwt:
-  secret: ${JWT_SECRET:5367566B59703373367639792F423F4528482B4D6251655468576D5A71347437} # Use the same secret as auth-service
+  secret: ${JWT_SECRET}
 
 logging:
   level:
-    com.kheavmady.gateway: DEBUG
+    com.kheavmady.gateway: INFO
     org.springframework.cloud.gateway: INFO
     reactor.netty.http.server.HttpServerOperations: ERROR
