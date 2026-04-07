@@ -19,6 +19,13 @@ spring:
           filters:
             - name: AuthFilter
 
+        - id: doc-hub-system
+          uri: ${DOC_HUB_GATEWAY_URL:http://localhost:8080}
+          predicates:
+            - Path=/api/docs/**, /api/search/**, /api/download/**, /api/share/**, /api/feed/**
+          filters:
+            - name: AuthFilter
+
 # PRODUCTION SECRETS
 internal:
   gateway-secret: ${INTERNAL_GATEWAY_SECRET:PROD_GATEWAY_SECRET_KEY_12345}

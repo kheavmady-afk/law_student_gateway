@@ -72,9 +72,11 @@ public class AuthFilterGatewayFilterFactory extends AbstractGatewayFilterFactory
                             if (response != null && Boolean.TRUE.equals(response.get("valid"))) {
                                 logger.info("[AuthFilter] SUCCESS: Token valid for {}", path);
 
-                                // Inject secret and continue
+                                // Inject secret, role, and continue
                                 var mutatedRequest = request.mutate()
                                         .header("X-Gateway-Secret", gatewaySecret)
+                                        .header("X-User-Role", String.valueOf(response.get("role")))
+                                        .header("X-User-Name", String.valueOf(response.get("username")))
                                         .build();
                                 return chain.filter(exchange.mutate().request(mutatedRequest).build());
                             } else {
