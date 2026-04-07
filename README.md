@@ -129,18 +129,12 @@ On your **Development Machine** (PC/Mac), navigate to the `gateway/` directory a
 This will create an executable JAR in `build/libs/gateway-0.0.1-SNAPSHOT.jar`.
 
 ### 3. Transfer Files to the Pi
-Replace `<PI_IP>` with your Pi's actual IP address (e.g., `192.168.0.179`) and `<USER>` with your username (e.g., `kheavmady`). Run these from your **Development Machine**:
+Replace `<PI_IP>` with your Pi's actual IP address (e.g., `192.168.0.179`) and `<USER>` with your username (e.g., `kheavmady`). Run this single command from your **Development Machine**:
 ```bash
-# Create the deployment directory on the Pi
-ssh kheavmady@192.168.0.179 "mkdir -p ~/apps/lawstudent/gateway/"
-
-# Transfer the JAR file
-scp build/libs/*.jar kheavmady@192.168.0.179:~/apps/lawstudent/gateway/
-
-# Transfer the Docker configuration files
-scp Dockerfile kheavmady@192.168.0.179:~/apps/lawstudent/gateway/
-scp docker-compose.yml kheavmady@192.168.0.179:~/apps/lawstudent/gateway/
+# Transfer everything (JAR, Dockerfile, Compose, .env, and Prod Config) in one go
+scp build/libs/*.jar Dockerfile docker-compose.yml .env src/main/resources/application-prod.yaml kheavmady@192.168.0.179:~/apps/lawstudent/gateway/
 ```
+
 
 ### 4. Configure and Start on the Pi
 SSH into your Raspberry Pi and start the service:
