@@ -10,10 +10,11 @@ public class RouteValidator {
     public static final List<String> openApiEndpoints = List.of(
             "/api/v1/user/register",
             "/api/v1/user/login",
-            "/auth/validate"
+            "/auth/validate",
+            "/auth/generate"
     );
 
     public Predicate<ServerHttpRequest> isSecured =
             request -> openApiEndpoints.stream()
-                    .noneMatch(uri -> request.getURI().getPath().contains(uri));
+                    .noneMatch(uri -> request.getURI().getPath().equals(uri));
 }

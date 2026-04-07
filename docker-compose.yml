@@ -5,9 +5,5 @@ services:
     restart: always
     ports:
       - "8080:8080"
-    environment:
-      # REPLACE <PI_SECURITY_IP> with the IP of this Pi
-      - AUTH_SERVICE_URL=http://192.168.0.179:8081
-      # REPLACE <PI_BUSINESS_LOGIC_IP> with the IP of the third Pi
-      - USER_SERVICE_URL=http://192.168.0.20:8082
-      - INTERNAL_GATEWAY_SECRET=PROD_GATEWAY_SECRET_KEY_12345
+    env_file:
+      - .env

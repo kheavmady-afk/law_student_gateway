@@ -32,7 +32,11 @@ internal:
   # Changed variable name to AUTH_VALIDATION_URL to avoid collision
   auth-service-url: ${AUTH_VALIDATION_URL:http://192.168.0.179:8081/auth}
 
+jwt:
+  secret: ${JWT_SECRET:5367566B59703373367639792F423F4528482B4D6251655468576D5A71347437} # Use the same secret as auth-service
+
 logging:
   level:
     com.kheavmady.gateway: DEBUG
     org.springframework.cloud.gateway: INFO
+    reactor.netty.http.server.HttpServerOperations: ERROR
