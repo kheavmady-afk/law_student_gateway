@@ -1,10 +1,6 @@
 package com.kheavmady.gateway.filter;
 
 import com.kheavmady.gateway.config.RouteValidator;
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.io.Decoders;
-import io.jsonwebtoken.security.Keys;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -13,26 +9,29 @@ import org.springframework.cloud.gateway.filter.factory.AbstractGatewayFilterFac
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
-import javax.crypto.SecretKey;
+import java.util.Map;
 
 @Component
 public class AuthFilterGatewayFilterFactory extends AbstractGatewayFilterFactory<AuthFilterGatewayFilterFactory.Config> {
 
     private static final Logger logger = LoggerFactory.getLogger(AuthFilterGatewayFilterFactory.class);
     private final RouteValidator validator;
+    private final WebClient.Builder webClientBuilder;
 
     @Value("${internal.gateway-secret}")
     private String gatewaySecret;
 
-    @Value("${jwt.secret}")
-    private String jwtSecret;
+    @Value("${internal.auth-service-url}")
+    private String authServiceBaseUrl;
 
-    public AuthFilterGatewayFilterFactory(RouteValidator validator) {
+    public AuthFilterGatewayFilterFactory(RouteValidator validator, WebClient.Builder webClientBuilder) {
         super(Config.class);
         this.validator = validator;
+        this.webClientBuilder = webClientBuilder;
     }
 
     @Override
@@ -41,34 +40,20 @@ public class AuthFilterGatewayFilterFactory extends AbstractGatewayFilterFactory
             var request = exchange.getRequest();
             String path = request.getURI().getPath();
 
-            logger.info("[AuthFilter] Processing request: {} {}", request.getMethod(), path);
-
             if (validator.isSecured.test(request)) {
                 if (!request.getHeaders().containsKey(HttpHeaders.AUTHORIZATION)) {
-                    logger.error("[AuthFilter] Rejecting: Missing Authorization header for {}", path);
+                    logger.error("[AuthFilter] Missing Authorization header");
                     return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing auth header"));
                 }
 
                 String authHeader = request.getHeaders().get(HttpHeaders.AUTHORIZATION).get(0);
-
-                if (authHeader == null || !authHeader.startsWith("Bearer ") || authHeader.length() < 8) {
-                    logger.error("[AuthFilter] Rejecting: Invalid Authorization format for {}", path);
+                if (authHeader == null || !authHeader.startsWith("Bearer ")) {
                     return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid Bearer token"));
                 }
 
                 String token = authHeader.substring(7);
+                String validationUrl = authServiceBaseUrl + "/validate?token=" + token;
 
-                try {
-                    // Local Validation
-                    Claims claims = Jwts.parser()
-                            .verifyWith(getSignKey())
-                            .build()
-                            .parseSignedClaims(token)
-                            .getPayload();
-                    
-                    logger.info("[AuthFilter] SUCCESS: Token valid for user: {}", claims.getSubject());
-
-<<<<<<< HEAD
                 return webClientBuilder.build()
                         .get()
                         .uri(validationUrl)
@@ -78,8 +63,6 @@ public class AuthFilterGatewayFilterFactory extends AbstractGatewayFilterFactory
                         .flatMap(response -> {
                             if (response != null && Boolean.TRUE.equals(response.get("valid"))) {
                                 logger.info("[AuthFilter] SUCCESS: Token valid for {}", path);
-
-                                // Inject secret, role, and continue
                                 var mutatedRequest = request.mutate()
                                         .header("X-Gateway-Secret", gatewaySecret)
                                         .header("X-User-Role", String.valueOf(response.get("role")))
@@ -87,34 +70,21 @@ public class AuthFilterGatewayFilterFactory extends AbstractGatewayFilterFactory
                                         .build();
                                 return chain.filter(exchange.mutate().request(mutatedRequest).build());
                             } else {
-                                logger.error("[AuthFilter] FAILURE: Auth Service rejected token for {}", path);
+                                logger.error("[AuthFilter] FAILURE: Auth Service rejected token");
                                 return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Token invalid"));
                             }
                         })
                         .onErrorResume(e -> {
-                            logger.error("[AuthFilter] ERROR: Authentication process failed: {}", e.getMessage());
-                            if (e instanceof ResponseStatusException) return Mono.error(e);
-                            return Mono.error(new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Authentication Service Error"));
+                            logger.error("[AuthFilter] ERROR: Auth service call failed: {}", e.getMessage());
+                            return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Auth service unreachable"));
                         });
-=======
-                } catch (Exception e) {
-                    logger.error("[AuthFilter] FAILURE: Token validation failed: {}", e.getMessage());
-                    return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Token invalid or expired"));
-                }
->>>>>>> 7f5c9d5d8c13f978be932bdc1406a2844799addf
             }
 
-            // Inject secret and continue (Zero-Trust)
             var mutatedRequest = request.mutate()
                     .header("X-Gateway-Secret", gatewaySecret)
                     .build();
             return chain.filter(exchange.mutate().request(mutatedRequest).build());
         };
-    }
-
-    private SecretKey getSignKey() {
-        byte[] keyBytes = Decoders.BASE64.decode(jwtSecret);
-        return Keys.hmacShaKeyFor(keyBytes);
     }
 
     public static class Config {}
