@@ -52,11 +52,14 @@ public class AuthFilterGatewayFilterFactory extends AbstractGatewayFilterFactory
                 }
 
                 String token = authHeader.substring(7);
-                String validationUrl = authServiceBaseUrl + "/validate?token=" + token;
+                // Ensure we don't double up on /validate if it's already in the base URL
+                String finalUrl = authServiceBaseUrl.endsWith("/validate") 
+                        ? authServiceBaseUrl + "?token=" + token 
+                        : authServiceBaseUrl + "/validate?token=" + token;
 
                 return webClientBuilder.build()
                         .get()
-                        .uri(validationUrl)
+                        .uri(finalUrl)
                         .header("X-Gateway-Secret", gatewaySecret)
                         .retrieve()
                         .bodyToMono(Map.class)

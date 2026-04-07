@@ -171,11 +171,11 @@ The Gateway is the "brain" of the network. If it can't authenticate, everything 
 docker logs gateway --tail 100 | grep "AuthFilter"
 ```
 *   **Success:** `[AuthFilter] Processing request: GET /api/v1/user/profile` followed by a successful call to the Auth Service.
-*   **The 404 URL Trap:** Look for `404 Not Found from GET http://192.168.0.179:8081/validate`. This means your `AUTH_VALIDATION_URL` is missing the `/auth` prefix. Correct URL: `http://192.168.0.179:8081/auth/validate`.
-*   **The Filter Name Trap:** If you see NO logs starting with `[AuthFilter]`, the Gateway isn't triggering the filter. Check `application.yaml` to ensure the filter is named `- name: AuthFilter`.
+*   **The 404 URL Trap (Fixed):** If you see `404 Not Found from GET .../auth/validate/validate`, it means the code and the `.env` variable both tried to add the `/validate` path. The filter now handles this automatically by checking if the URL already ends with `/validate`.
 
 ### 2. Painful Lessons Learned (Zero-Trust Security)
+*   **Path Duplication:** When defining service URLs in `.env`, be consistent about whether they include the final endpoint path or just the base service URL.
 *   **Variable Collision:** Never name your internal validation URL `AUTH_SERVICE_URL` if that variable is already used to define the Gateway route. Use a unique name like `AUTH_VALIDATION_URL`.
-*   **Localhost is a Trap:** Inside a Docker container, `localhost` refers to the container itself, NOT the Raspberry Pi. Always use the Pi's physical IP (`192.168.0.179`) for inter-service communication.
+*   **Localhost is a Trap:** Inside a Docker container, `localhost` refers to the container itself, NOT the Raspberry Pi. Always use the Pi's physical IP (`192.168.0.179`) or the Docker service name (`redis`) for inter-service communication.
 *   **JWT Secret Sync:** The `JWT_SECRET` must be exactly the same across all services. A single character mismatch will cause a 401 error.
 
