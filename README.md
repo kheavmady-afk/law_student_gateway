@@ -65,9 +65,12 @@ New accounts are created with a `PENDING` status.
 ### 6. Gateway Passport (Internal Security)
 Every request forwarded by the Gateway is injected with a "Passport":
 - **Header**: `X-Gateway-Secret`
-- **Value**: `PROD_GATEWAY_SECRET_KEY_12345` (Configured in `application.yaml`)
+- **Value**: `PROD_GATEWAY_SECRET_KEY_12345` (Configured in `.env`)
 
-**Note:** Internal services should check for this header to ensure the request originated from the Gateway and not an external source trying to bypass the shield.
+**Security Implementation (Zero-Exposure Policy):**
+- **Incoming**: The Gateway automatically **removes** any `X-Gateway-Secret` header sent by the client. This prevents "Header Spoofing" attacks where a hacker tries to guess the secret.
+- **Outgoing**: The Gateway automatically **removes** the `X-Gateway-Secret` from the response headers before they reach the client. 
+- **Internal Only**: This ensures the "Secret Handshake" remains 100% invisible to the outside world (Postman, Browsers, Mobile Apps). It only exists in the traffic between the Gateway and the microservices.
 
 ---
 

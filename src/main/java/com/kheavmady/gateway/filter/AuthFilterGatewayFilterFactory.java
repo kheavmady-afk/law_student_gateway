@@ -37,7 +37,11 @@ public class AuthFilterGatewayFilterFactory extends AbstractGatewayFilterFactory
     @Override
     public GatewayFilter apply(Config config) {
         return (exchange, chain) -> {
-            var request = exchange.getRequest();
+            // 1. Clean the incoming request: Remove any X-Gateway-Secret sent by the client
+            var request = exchange.getRequest().mutate()
+                    .headers(httpHeaders -> httpHeaders.remove("X-Gateway-Secret"))
+                    .build();
+            
             String path = request.getURI().getPath();
 
             if (validator.isSecured.test(request)) {
@@ -71,22 +75,34 @@ public class AuthFilterGatewayFilterFactory extends AbstractGatewayFilterFactory
                                         .header("X-User-Role", String.valueOf(response.get("role")))
                                         .header("X-User-Name", String.valueOf(response.get("username")))
                                         .build();
-                                return chain.filter(exchange.mutate().request(mutatedRequest).build());
+                                
+                                // Forward the request, but ensure the secret is removed from the final response
+                                return chain.filter(exchange.mutate().request(mutatedRequest).build())
+                                        .then(Mono.fromRunnable(() -> exchange.getResponse().getHeaders().remove("X-Gateway-Secret")));
                             } else {
                                 logger.error("[AuthFilter] FAILURE: Auth Service rejected token");
                                 return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Token invalid"));
                             }
                         })
                         .onErrorResume(e -> {
+                            // If it's already a ResponseStatusException (like "Token invalid"), don't overwrite it
+                            if (e instanceof ResponseStatusException) {
+                                return Mono.error(e);
+                            }
                             logger.error("[AuthFilter] ERROR: Auth service call failed: {}", e.getMessage());
                             return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Auth service unreachable"));
-                        });
-            }
+                        })
+                        .then(); // Convert Mono<Object> to Mono<Void>
+            } else {
+                // Unsecured routes: still inject the gateway secret but skip token validation
+                var mutatedRequest = request.mutate()
+                        .header("X-Gateway-Secret", gatewaySecret)
+                        .build();
 
-            var mutatedRequest = request.mutate()
-                    .header("X-Gateway-Secret", gatewaySecret)
-                    .build();
-            return chain.filter(exchange.mutate().request(mutatedRequest).build());
+                // Forward for unsecured routes, cleaning the response headers too
+                return chain.filter(exchange.mutate().request(mutatedRequest).build())
+                        .then(Mono.fromRunnable(() -> exchange.getResponse().getHeaders().remove("X-Gateway-Secret")));
+            }
         };
     }
 
